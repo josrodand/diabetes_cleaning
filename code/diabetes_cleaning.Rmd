@@ -1,0 +1,327 @@
+---
+title: 'Práctica 2: Limpieza y validación de los datos'
+author: "José Luis Rodríguez Andreu"
+date: "18/5/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Introducción
+
+El objetivo de esta práctica es la realización de un proceso de limpieza de un conjunto de datos. Para ello, se ha escogido el conjunto de datos Pima Indians Diabetes de la plataforma Kaggle (https://www.kaggle.com/uciml/pima-indians-diabetes-database).
+
+Este conjunto de datos contiene información médica sobre mujeres relacionada con el diagnóstico de la diabetes. Consta de 768 observaciones con las siguientes variables:
+
+* `Pregnancies`: Número de embarazos que ha tenido la paciente.
+* `Glucose`: Concentración de glucosa en plasma a las 2 horas en una prueba oral de tolerancia a la glucosa.
+* `BloodPressure`: Presión arterial diastólica (mm Hg)
+* `SkinThickness`: Espesor del pliegue cutáneo del tríceps (mm)
+* `Insulin`: Insulina en suero a las 2 horas (mu U/ml)
+* `BMI`: Índice de masa corporal
+* `DiabetesPedigreeFunction`: Función de pedigrí de la diabetes
+* `Age`: Edad
+* `Outcome`: Variable indicadora de que si la paciente padece o no de diabetes. La clase 1 indica que padece diabetes. 268 de 768 registros se encuentran etiquetados con 1.
+
+
+# 2. Importancia y objetivo del análisis
+
+
+Este conjunto de datos procede del Instituto Nacional de Diabetes y Enfermedades Digestivas y Renales de EEUU. El objetivo del conjunto de datos es realizar un diagnóstico predictivo sobre si un paciente tiene o no diabetes, basándose en determinadas mediciones de índole médica incluidas en el conjunto de datos. En este conjunto de datos, todos los pacientes registrados son mujeres de al menos 21 años de edad de origen "indio Pima". Por lo tanto, el objetivo principal de este proyecto es el de definir unas pautas de limpieza y preprocesado de datos para poder realizar un diagnóstico automático basado en técnicas de aprendizaje automático lo mas preciso posible.
+
+La importancia del diseño de modelos de machine learning capaces de realizar diagnósticos médicos con precisión ayuda a los profesionales de la medicina a la hora de atender pacientes, y desemboca en una mejora del propio sistema sanitario, ya que este tipo de diagnósticos permiten ahorrar costes en análisis y tiempo de los profesionales, permitiendo de esta manera la reinversión de esos gastos sanitarios en promover una atención médica de calidad, además de facilitar el trabajo al personal sanitario que frecuentemente, y mas en época de pandemia, se encuentra saturado por una alta carga de trabajo.
+
+# 3. Integración y selección de los datos de interés a analizar
+
+En este caso, vamos a trabajar con todas las variables descritas en el dataset, ya que todas tienen potencial para resultar útiles en la búsqueda de patrones que permitan la identificación automática de la diabetes.
+
+# 4. Limpieza de los datos
+
+Importamos el fichero `diabetes.csv`. Observamos que todas las variables son de tipo entero o numérico. La variable `Outcome` aunque toma valores numéricos de 0 y 1, es en reailidad una variable categórica binaria.
+
+
+```{r}
+df = read.csv("../csv/diabetes.csv", encoding = 'UTF-8')
+str(df)
+```
+
+
+```{r}
+head(df)
+```
+
+Realizamos un análisis estadístico inicial para conocer la distribución de los datos:
+
+```{r}
+summary(df)
+```
+## 4.1. Tratamiento de valores perdidos
+
+Comprobamos que en este caso el conjunto de datos no presenta registros con valores nulos en alguna de sus variables. En el caso de que existiesen, se plantearía la posibilidad de realizar una imputación empleando alguna técnica de inferencia de ese valor a partir del resto de variables, ya que el conjunto de datos no es excesivamente grande y nos interesa mantener un buen número de registros.
+
+```{r}
+sapply(df, function(x) sum(is.na(x)))
+```
+
+## 4.2. Identificación y tratamiento de valores extremos
+
+
+aplicamos un diagrama de cajas para observar si se observan valores anómalos u outliers:
+
+
+```{r}
+boxplot(df)
+```
+
+Observamos que la mayoría de las variables tienen outliers, pero se encuentran en una posición cercana al cuerpo de la distribución. dado que no tenemos ningún tipo de restricción respecto al intervalo donde deben moverse los datos, los dejamos tal y como están. La única que presenta mas outliers visibles es Insulin. Estudiamos su distribución:
+
+```{r}
+hist(df$Insulin)
+```
+
+Observamos que es una distribución descendente, la cual mantiene la gran mayoría de los registros en el intervalo de entre 0 y 200, pero se observa que la distribución cae de manera homogenea. Esto nos dice que esta variable sigue una distribución distinta a la normal, y esa es la causa de que el boxplot detecte tantos outliers. Dado que estos valores extremos no son casos puntuales, decidimos dejarlos como están, ya que pueden ser datos anómalos pero correctos.
+
+# 5. Análisis de los datos
+
+En esta sección se van a realizar una serie de análisis del conjunto de datos que nos ayudarán a la hora de encontrar diferentes características o patrones que sean relevantes a la hora de diagnosticar o no a una paciente con diabetes.
+
+## 5.1. Selección de los grupos de datos que se quieren analizar
+
+En este caso, se ha decidido trabajar con dos muestras: una que contenga todas las pacientes con diabetes y otra con las que no padezcan la enfermedad. El objetivo es realizar un análisis entre las dos muestras en base a las distintas variables con la idea de averiguar si éstas pueden ser o no significativas.
+
+```{r}
+df_diab = df[df$Outcome == 0,]
+df_no_diab = df[df$Outcome == 1,]
+```
+
+## 5.2. Comparación de la normalidad y homogeneidad de la varianza
+
+En primer lugar, vamos a estudiar la normalidad de las variables numéricas de nuestro conjunto de datos completo. Para ello, emplearemos el test de normalidad de Anderson-Darling.
+
+```{r}
+library(nortest)
+alpha = 0.05
+
+
+list_var = colnames(df)[1:length(colnames(df))-1]
+list_pvalue = c()
+list_is_normal = c()
+
+for(i in 1:length(list_var)){
+    pvalue = ad.test(df[, list_var[i]])$p.value
+    result = ifelse(pvalue < alpha, "no", "si")
+    list_pvalue[i] = pvalue
+    list_is_normal[i] = result
+
+}
+
+normal_result = data.frame(
+    list_var,
+    list_pvalue,
+    list_is_normal
+)
+colnames(normal_result) = c("variable", "p-valor", "¿Sigue distrib. normal?")
+
+
+normal_result
+```
+
+Según el test estadístico aplicado, ninguna de las variables numéricas sigue una distribución normal.
+
+Ahora, vamos a estudiar la homogeneidad de la varianza en nuestro conjunto de datos. Para ello, empleamos el test de Fligner-Killeen para estudiar esta homogeneidad entre la población de pacientes que sufre diabetes y la población que no la padece, respecto al resto de variables. 
+
+```{r}
+alpha = 0.05
+
+
+list_var = colnames(df)[1:length(colnames(df))-1]
+list_pvalue = c()
+list_homogen_variances = c()
+
+for(i in 1:length(list_var)){
+    pvalue = fligner.test(x = df[, list_var[i]], g = df[,"Outcome"])$p.value
+    result = ifelse(pvalue < alpha, "no", "si")
+    list_pvalue[i] = pvalue
+    list_homogen_variances[i] = result
+
+}
+
+normal_result = data.frame(
+    list_var,
+    list_pvalue,
+    list_homogen_variances
+)
+colnames(normal_result) = c("variable", "p-valor", "¿varianza homogenea respecto a Outcome?")
+
+
+normal_result
+
+```
+En este caso, observamos que el test nos dice que las variables BloodPressure, Insulin y BMI presentan homogeneidad en la varianza respecto a Outcome. Pregnancies, Glucose, SkinThickness, DiabetesPEdigreeFunction y Age no tienen varianza homogenea en las dos categorías de Outcome.
+
+
+## 5.3. Pruebas estadísticas
+
+A continuación se van a realizar una serie de pruebas estadísticas para comparar las dos muestras que hemos obtenido del conjunto de datos: La muestra con pacientes sin diabetes y la muestra con pacientes que sufren de diabetes. El objetivo es encontrar diferencias significativas respecto al hecho de tener o no diabetes en la distribución de nuestras variables del conjunto de datos.
+
+
+### 5.3.1. influencia de la diabetes en el numero de embarazos
+
+Vamos a analizar estadísitcamente si existe una diferencia significativa en el numero de embarazos en pacientes diabéticas y no diabéticas. En primer lugar, calculamos el valor medio de la variable Pregnancies para las muestras: 
+
+```{r}
+mean(df_no_diab$Pregnancies)
+mean(df_diab$Pregnancies)
+```
+
+Observamos que el valor medio de Pregnancies es superior en pacientes no diabéticas que diabéticas, por lo que planteamos la siguiente pregunta de investigación:
+
+**¿El número de embarazos es superior en pacientes sin diabetes que con diabetes?**
+
+Para ello, planteamos la hipótesis nula y alternativa:
+
+* $H_0$: No hay diferencia en el número de embarazos en pacientes no diabeticas y diabeticas
+
+$$H_0: \mu_{ND} = \mu_D$$
+
+* $H_1$: EL numero de embarazos es significativamente mayor en pacientes no diabéticas que en pacientes diabéticas:
+
+$$H_0: \mu_{ND} > \mu_D$$
+
+Especificaciones del contraste de hipótesis:
+
+* Contraste de dos muestras no relacionadas sobre la media
+* En base al Teorema del Límite Central, asumimos normalidad en muestras grandes (generalmente superior a 30 observaciones)
+* Aplicamos un test paramétrico, unilateral por la derecha.
+*Aplicamos un test de igualdad de varianzas para saber si asumimos homocedasticidad o heterocedasticidad:
+
+```{r}
+var.test(df_no_diab$Pregnancies, df_diab$Pregnancies)
+```
+
+Dado que obtenemos un p-valor muy pequeño, podemos considerar que las varianzas son distintas (heterocedasticidad).
+
+Sabiendo esto, realizamos el contraste:
+
+```{r}
+t.test(df_no_diab$Pregnancies, df_diab$Pregnancies, alternative="greater", var.equal=FALSE)
+```
+
+Observamos que obtenemos un p-valor muy pequeño, inferior a 0.05, por lo que podemos rechazar la hipótesis nula de igualdad de medias entre las dos poblaciones, y concluir que el número de embarazos es mayor en la población no diabética que en la diabética, con un nivel de significancia del 0.05.
+
+
+### 5.3.2 diferencias en la proporcion de mujeres con obesidad en pacientes diabeticas y no diabeticas
+
+A continuación vamos a esudiar si existe alguna diferencia significativa en la proporción de pacientes con obesidad (BMI >= 30) en la muestra poblacional de pacientes diabéticas y no diabéticas.
+
+La pregunta de investigación que nos planteamos es la siguiente:
+
+**¿Existe diferencia significativa en la proporción de mujeres con BMI >= 30 en pacientes diabéticas o no diabéticas?**
+
+Definimos la hipótesis nula y alternativa:
+
+* $H_0$: La proporción de pacientes con BMI igual o superior a 30 es la misma en pacientes diabéticas y no diabéticas.
+
+$$p_{ND} = p_D$$
+* $H_1$: La proporción de pacientes con BMI igual o superior a 30 es diferente en pacientes diabéticas y no diabéticas.
+
+$$p_{ND} ≠ p_D$$
+
+Especificaciones del contraste de hipótesis:
+
+* Contraste de dos muestras no relacionadas sobre la proporción
+* En base al Teorema del Límite Central, asumimos normalidad en muestras grandes (generalmente superior a 30 observaciones)
+* Aplicamos un test paramétrico bilateral.
+
+Aplicamos el contraste:
+
+```{r}
+
+n_no_diab = length(df_no_diab$BMI)
+n_diab = length(df_diab$BMI)
+
+p_no_diab = sum(df_no_diab$BMI >= 30)/n_no_diab
+p_diab = sum(df_diab$BMI >= 30)/n_diab
+
+success = c(n_no_diab * p_no_diab, n_diab * p_diab)
+nn = c(n_no_diab, n_diab)
+
+prop.test(success, nn, alternative = "two.sided", correct = FALSE, conf.level = 0.95)
+```
+
+En este caso, obtenemos un p-valor muy pequeño, por lo que podemos rechazar la hipótesis nula de igualdad de proporciones y concluir que la proporción de pacientes con obesidad es diferente en pacientes no diabéticas y diabéticas.
+
+
+### 5.3.4. Correlación entre variables descriptivas
+
+Vamos a realizar un análisis de correlación entre las variables cuantitativas de las que disponemos, con el objetivo de comprobar si sus distribuciones están relacionadas:
+
+```{r}
+library(PerformanceAnalytics)
+
+#data.frame(round(cor(df[,list_var]), 2))
+chart.Correlation(df[,list_var], histogram = F, pch = 19)
+```
+
+Con esta gráfica observamos que no existe un nivel de correlación excesivamente alto en nuestro conjunto de variables. Observamos que Pregnancies y Age tienen un coeficiente de correlación de 0.54, lo cual tiene cierto sentido debido a que a mas edad, mas posibilidad de haber tenido mas hijos. También se percibe un coeficiente de correlación del 0.44 entre SkinThickness e Insulin.
+
+
+### 5.3.5. Modelo de regresión logística
+
+Vamos a construir un modelo de regresión logística a partir de nuestro conjunto de datos, que sea capaz de identificar una persona con diabetes o no en base a las variables del conjunto de datos. Esto nos ayudará también a ver que variables influyen mas en la probabilidad de padecer diabetes.
+
+```{r}
+model_glm = glm(as.factor(Outcome) ~ ., data = df, family=binomial)
+
+summary(model_glm)
+```
+
+Observando los resultados del modelo, vemos que nos dice que las variables mas influyentes en el cálculo de la probabilidad de tener o no diabetes son Pregnancies, Glucose, BMI, DiabetesPedigreeFunction y BloodPressure. Observando sus coeficientes vemos que estas variables, en su mayoría, tienen un efecto positivo en la probabilidad de padecer diabetes. Esto quiere decir que la posibilidad de tener diabetes aumenta con valores mas elevados en estas variables. La única variable de las mas influyentes que tiene un coeficiente negativo es BloodPressure, lo cual nos dice que un mayor valor en esta variable inplica una reducción en la posibilidad de padecer diabetes.
+
+Construimos otro modelo empleando únicamente las variables influyentes:
+
+
+```{r}
+model_glm2 = glm(as.factor(Outcome) ~ Pregnancies + Glucose + BMI + DiabetesPedigreeFunction + BloodPressure, data = df, family=binomial)
+
+summary(model_glm2)
+```
+
+Comparando ambos modelos, vemos que el segundo toma un valor del AIC (Criterio de información de AKAIKE) inferior. Este parámetro nos indica un modelo de mayor calidad conforme disminuye su valor, por lo que este segundo modelo que emplea únicamente las variables consideradas significativas se ajusta mejor a los datos que el anterior, que emplea todas.
+
+
+# 6. Conclusiones y resolución del problema
+
+Hemos realizado un análisis del conjunto de datos para encontrar algún tipo de relación entre las variables que disponemos y el hecho de padecer o no diabetes. Las conclusiones que obtenemos son las siguientes:
+
+* Las variables numéricas no siguen una distribución normal.
+* BloodPresure, Insulin y BMI presentan varianza homogénea en la muestra de pacientes diabéticas y no diabéticas. El resto presentan varianza heterogénea.
+* Hemos concluido que el número de embarazos es significativamente mayor en las pacientes no diabéticas que en las diabéticas, con un nivel de confianza del 95%.
+* Del mismo modo, hemos concluido con un nivel de confianza del 95% que la proporción de pacientes con obesidad (BMI > 30) es sinificativamente diferente en la población diabética y no diabética.
+* Del análisis de correlación obtenemos que no hay correlaciones altas entre las variables disponibles. Destaca la correlación entre Age y Pregnancies, lo cual tiene sentido debido a que las mujeres con mas edad pueden haber tenido mas hijos.
+* Hemos construido un modelo de regresión logística para estudiar la influencia de las variables en el hecho de padecer o no diabetes, y hemos concluido que las variables mas significativas según el modelo son Pregnancies, Glucose, BMI, DiabetesPedigreeFunction y BloodPressure.
+
+Con estos resultados podemos construir un sistema que permita identificar pacientes diabéticas en base a la información que tengamos de estas variables. Este modelo de regresión logística nos sirve de ejemplo de aplicación de una herramienta que clasifique a una paciente observada como diabética o no diabética.
+
+
+```{r}
+newdata = data.frame(
+    Pregnancies = 5,
+    Glucose = 115,
+    BloodPressure = 74,
+    SkinThickness = 0,
+    Insulin = 0,
+    BMI = 25.6,
+    DiabetesPedigreeFunction = 0.201,
+    Age = 30
+)
+
+prediction = ifelse(predict(model_glm2, newdata) <0.5, 0, 1)
+
+prediction
+```
+
+
+
